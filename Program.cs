@@ -16,6 +16,7 @@ namespace csharp2jsonschema
         private static string PathDest { get; set; } = "./";
         private static string _schemaDll = "";
         private static string CommonNamespace { get; set; } = "Common";
+        private static string JClass { get; set; } = "./../src/JsonSchema";
 
         private static void Main(string[] args)
         {
@@ -24,6 +25,7 @@ namespace csharp2jsonschema
                 { "src=", v=> PathSource = v },
                 { "dst=", v=> PathDest = v },
                 { "n=", v=> CommonNamespace = v },
+                { "jc=", v=> JClass = v },
             };
             options.Parse(args);
             _schemaDll = Path.Combine(PathDest, CommonNamespace, CommonNamespace + ".dll");
@@ -31,12 +33,14 @@ namespace csharp2jsonschema
             ClearDirectory(dest);
             var assembly = LoadAssembly(LoadSource(PathSource));
             UpdateSchemas(assembly, PathDest);
+            Console.WriteLine("Done");
         }
 
         private static string LoadSource(string path)
         {
+            Console.WriteLine($"Loading sources from {path}");
             var files = new List<string>();
-            DirSearch(ref files, path);
+            DirSearch(ref files, path, "*.cs");
             var res = new StringBuilder();
             foreach (var file in files)
             {
@@ -57,6 +61,7 @@ namespace csharp2jsonschema
                 GenerateInMemory = true,
                 OutputAssembly = _schemaDll
             };
+            Console.WriteLine($"Building assembly {_schemaDll}");
 
             var providerOptions = new Dictionary<string, string> {{"CompilerVersion", "v4.0"}};
             var compiler = CodeDomProvider.CreateProvider("C#", providerOptions);
@@ -74,13 +79,11 @@ namespace csharp2jsonschema
         public static void UpdateSchemas(Assembly assembly, string dest)
         {
             var generator = new JSchemaGenerator();
-
             var schemas = new Dictionary<string, string>();
-
             var q = from t in assembly.GetTypes()
                     where t.IsClass
                     select t;
-
+            //Console.WriteLine("Types:");
             q.ToList().ForEach(t =>
             {
                 if (t.Namespace == null)
@@ -94,50 +97,56 @@ namespace csharp2jsonschema
                 Directory.CreateDirectory(path);
                 File.WriteAllText(Path.Combine(path, t.Name + ".json"), schema.ToString());
                 schemas[t.Namespace + "." + t.Name] = schema.ToString();
-                Console.WriteLine(t.Name + " in " + t.Namespace);
+                //Console.WriteLine($"    {t.Namespace}: {t.Name}");
             });
             
-
+            Console.WriteLine($"Schemas:");
             var list = new List<string>();
-            DirSearch(ref list, Path.Combine(dest, CommonNamespace));
-            var currentPath = "";
-            var jsFile = "var JsonSchema = require('./../src/JsonSchema')\n";
+            DirSearch(ref list, Path.Combine(dest, CommonNamespace), "*.json");
+            var jsFile = $"var Class = require('{JClass}')\n";
             //jsFile += "var "+entryType.Namespace+" = {}\n";
             var definedNamespaces = new List<string>();
             foreach (var e in list)
             {
-                if (currentPath != Path.GetDirectoryName(e))
-                {
-                    currentPath = Path.GetDirectoryName(e);
-                }
-                if (Path.GetExtension(e) != ".json")
-                {
-                    continue;
-                }
-                var currentPathSplitted = currentPath.Split(Path.DirectorySeparatorChar);
-                currentPathSplitted = currentPathSplitted.Skip(2).ToArray();
+                var currentPath = Path.GetDirectoryName(e);
+                //var currentPathSplitted = currentPath.Split(Path.DirectorySeparatorChar);
+                //currentPathSplitted = currentPathSplitted.Skip(2).ToArray()
+                
 
-                var nameSpace = Join(".", currentPathSplitted);
+                var nameSpace = Join(".", GetRelativePath(currentPath, "./").Split(Path.PathSeparator));
                 if (!definedNamespaces.Contains(nameSpace))
                 {
                     jsFile += nameSpace + " = {}\n";
                     definedNamespaces.Add(nameSpace);
                 }
                 var schemaName = nameSpace + "." + Path.GetFileNameWithoutExtension(e);
-                jsFile += $"{schemaName} = new JsonSchema.SchemaEntity({schemas[schemaName]})\n";
+                jsFile += $"{schemaName} = new Class({schemas[schemaName]})\n";
+                Console.WriteLine($"    {schemaName}");
             }
             jsFile += "module.exports = " + CommonNamespace;
             File.WriteAllText(Path.Combine(Path.Combine(dest, CommonNamespace), CommonNamespace + ".js"), jsFile);
         }
 
-        private static void DirSearch(ref List<string> list, string sDir)
+        private static string GetRelativePath(string filespec, string folder)
+        {
+            Uri pathUri = new Uri(Path.GetFullPath(filespec));
+            // Folders must end in a slash
+            if (!folder.EndsWith(Path.DirectorySeparatorChar.ToString()))
+            {
+                folder += Path.DirectorySeparatorChar;
+            }
+            Uri folderUri = new Uri(Path.GetFullPath(folder));
+            return Uri.UnescapeDataString(folderUri.MakeRelativeUri(pathUri).ToString().Replace('/', Path.DirectorySeparatorChar));
+        }
+
+        private static void DirSearch(ref List<string> list, string sDir, string extension)
         {
             try
             {
-                list.AddRange(Directory.GetFiles(sDir, "*.cs"));
+                list.AddRange(Directory.GetFiles(sDir, extension));
                 foreach (var d in Directory.GetDirectories(sDir))
                 {
-                    DirSearch(ref list, d);
+                    DirSearch(ref list, d, extension);
                 }
             }
             catch (System.Exception excpt)
@@ -151,8 +160,13 @@ namespace csharp2jsonschema
             var di = new DirectoryInfo(path);
             if (!di.Exists)
             {
+                Console.WriteLine($"Creating folder {path}");
                 Directory.CreateDirectory(path);
                 return;
+            }
+            else
+            {
+                Console.WriteLine($"Clearing folder {path}");
             }
             foreach (var file in di.GetFiles())
             {
