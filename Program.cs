@@ -38,7 +38,6 @@ namespace csharp2jsonschema
 
         private static string LoadSource(string path)
         {
-            Console.WriteLine($"Loading sources from {path}");
             var files = new List<string>();
             DirSearch(ref files, path, "*.cs");
             var res = new StringBuilder();
@@ -61,9 +60,8 @@ namespace csharp2jsonschema
                 GenerateInMemory = true,
                 OutputAssembly = _schemaDll
             };
-            Console.WriteLine($"Building assembly {_schemaDll}");
 
-            var providerOptions = new Dictionary<string, string> {{"CompilerVersion", "v4.0"}};
+            var providerOptions = new Dictionary<string, string> { { "CompilerVersion", "v4.0" } };
             var compiler = CodeDomProvider.CreateProvider("C#", providerOptions);
             var cr = compiler.CompileAssemblyFromSource(cp, sourceCode);
             if (!cr.Errors.HasErrors) return cp.GenerateInMemory ? cr.CompiledAssembly : Assembly.LoadFrom(_schemaDll);
@@ -75,7 +73,7 @@ namespace csharp2jsonschema
             Console.WriteLine(errors);
             return cp.GenerateInMemory ? cr.CompiledAssembly : Assembly.LoadFrom(_schemaDll);
         }
-        
+
         public static void UpdateSchemas(Assembly assembly, string dest)
         {
             var generator = new JSchemaGenerator();
@@ -83,7 +81,6 @@ namespace csharp2jsonschema
             var q = from t in assembly.GetTypes()
                     where t.IsClass
                     select t;
-            //Console.WriteLine("Types:");
             q.ToList().ForEach(t =>
             {
                 if (t.Namespace == null)
@@ -97,23 +94,17 @@ namespace csharp2jsonschema
                 Directory.CreateDirectory(path);
                 File.WriteAllText(Path.Combine(path, t.Name + ".json"), schema.ToString());
                 schemas[t.Namespace + "." + t.Name] = schema.ToString();
-                //Console.WriteLine($"    {t.Namespace}: {t.Name}");
             });
-            
+
             Console.WriteLine($"Schemas:");
             var list = new List<string>();
             DirSearch(ref list, Path.Combine(dest, CommonNamespace), "*.json");
             var jsFile = $"var Class = require('{JClass}')\n";
-            //jsFile += "var "+entryType.Namespace+" = {}\n";
             var definedNamespaces = new List<string>();
             foreach (var e in list)
             {
                 var currentPath = Path.GetDirectoryName(e);
-                //var currentPathSplitted = currentPath.Split(Path.DirectorySeparatorChar);
-                //currentPathSplitted = currentPathSplitted.Skip(2).ToArray()
-                
-
-                var nameSpace = Join(".", GetRelativePath(currentPath, "./").Split(Path.PathSeparator));
+                var nameSpace = Join(".", GetRelativePath(currentPath, "./").Split(Path.DirectorySeparatorChar));
                 if (!definedNamespaces.Contains(nameSpace))
                 {
                     jsFile += nameSpace + " = {}\n";
@@ -129,13 +120,13 @@ namespace csharp2jsonschema
 
         private static string GetRelativePath(string filespec, string folder)
         {
-            Uri pathUri = new Uri(Path.GetFullPath(filespec));
+            var pathUri = new Uri(Path.GetFullPath(filespec));
             // Folders must end in a slash
             if (!folder.EndsWith(Path.DirectorySeparatorChar.ToString()))
             {
                 folder += Path.DirectorySeparatorChar;
             }
-            Uri folderUri = new Uri(Path.GetFullPath(folder));
+            var folderUri = new Uri(Path.GetFullPath(folder));
             return Uri.UnescapeDataString(folderUri.MakeRelativeUri(pathUri).ToString().Replace('/', Path.DirectorySeparatorChar));
         }
 
